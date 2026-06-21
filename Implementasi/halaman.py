@@ -281,10 +281,15 @@ if role == "Pemilik":
             )
 
             colE, colF = st.columns(2)
+
             with colE:
-                if st.button("Jalankan EXPLAIN ANALYZE", key="o3_run"):
+                if st.button("Jalankan EXPLAIN ANALYZE", key="s4_run"):
+                    index_aktif_saat_ini = index_sudah_ada("index_id_kamar_sewa")
+                    label = "Sesudah index" if index_aktif_saat_ini else "Sebelum index"
+            
                     plan = run_explain("SELECT * FROM sewa WHERE id_kamar = %s", (id_kamar_input,))
-                    tampilkan_plan(plan, "Sebelum/sesudah index")
+                    tampilkan_plan(plan, label)
+
             with colF:
                 if not ada_index_kamar:
                     if st.button("Buat Index Sekarang", key="o3_create"):
@@ -771,3 +776,5 @@ else:
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
 st.caption("ABD KELOMPOK 2 @2026")
+
+
