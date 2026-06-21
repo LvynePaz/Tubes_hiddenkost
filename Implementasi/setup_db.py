@@ -1,7 +1,7 @@
 """
 Setup Database – Hidden Kost
 Jalankan: python setup_db.py
-Pastikan PostgreSQL sudah running dan password postgres sesuai.
+Pastikan PostgreSQL suda    h running dan password postgres sesuai.
 """
 
 import psycopg2

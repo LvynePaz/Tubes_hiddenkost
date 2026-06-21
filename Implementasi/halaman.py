@@ -1,3 +1,4 @@
+import datetime
 import streamlit as st
 import pandas as pd
 from db import run_query, run_execute
@@ -65,7 +66,7 @@ with st.sidebar:
     st.caption("KELOMPOK 2 @2026")
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.title("KELOMPOK 2 – Sistem Manajemen Kos")
+st.title("HK – Sistem Manajemen Kos")
 role_label = "Dashboard Pemilik" if role == "Pemilik" else "Dashboard Penyewa"
 st.caption(role_label)
 st.divider()
@@ -278,7 +279,8 @@ if role == "Pemilik":
     with tab_maint:
         st.subheader("Rekap Maintenance")
         sql = """
-            SELECT pp.nama_lengkap AS "Penyewa",
+            SELECT rm.id_request_maintenance AS "ID",
+                   pp.nama_lengkap AS "Penyewa",
                    rm.deskripsi AS "Keluhan",
                    COALESCE(rv.status::TEXT, 'Belum ditangani') AS "Status",
                    COALESCE(TO_CHAR(rv.tanggal_mulai, 'DD-MM-YYYY'), '-') AS "Mulai Dikerjakan",
@@ -304,6 +306,81 @@ if role == "Pemilik":
             st.dataframe(df_filtered, use_container_width=True, hide_index=True)
         else:
             st.info("Belum ada data maintenance.")
+
+        st.divider()
+        st.subheader("Kelola Maintenance")
+
+        pending = run_query("""
+            SELECT rm.id_request_maintenance, rm.deskripsi, pp.nama_lengkap,
+                   COALESCE(rv.status::TEXT, 'Belum ditangani') AS status
+            FROM request_maintenance rm
+            JOIN profil_penyewa pp ON rm.id_penyewa = pp.id_penyewa
+            LEFT JOIN riwayat_maintenance rv ON rm.id_request_maintenance = rv.id_request_maintenance
+            WHERE rv.status IS NULL OR rv.status IN ('Tertunda', 'Sedang dikerjakan')
+            ORDER BY rm.id_request_maintenance DESC
+        """)
+
+        if not pending:
+            st.success("Semua maintenance sudah ditangani / selesai.")
+        else:
+            opsi = {
+                f"#{p['id_request_maintenance']} – {p['nama_lengkap']} – {p['deskripsi']} ({p['status']})": p
+                for p in pending
+            }
+            pilih = st.selectbox("Pilih request untuk dikelola:", list(opsi.keys()), key="pilih_maint")
+            data_pilih = opsi[pilih]
+
+            status_baru = st.selectbox(
+                "Ubah status menjadi:",
+                ["Tertunda", "Sedang dikerjakan", "Selesai"],
+                key="status_baru_maint"
+            )
+
+            if st.button("Update Status", use_container_width=True, type="primary", key="btn_update_maint"):
+                try:
+                    existing = run_query(
+                        "SELECT id_riwayat_maintenance FROM riwayat_maintenance WHERE id_request_maintenance = %s",
+                        (data_pilih["id_request_maintenance"],)
+                    )
+
+                    if status_baru == "Tertunda":
+                        if existing:
+                            run_execute(
+                                "UPDATE riwayat_maintenance SET status = 'Tertunda', tanggal_mulai = NULL, tanggal_selesai = NULL WHERE id_request_maintenance = %s",
+                                (data_pilih["id_request_maintenance"],)
+                            )
+                        else:
+                            run_execute(
+                                "INSERT INTO riwayat_maintenance (status, id_request_maintenance) VALUES ('Tertunda', %s)",
+                                (data_pilih["id_request_maintenance"],)
+                            )
+                    elif status_baru == "Sedang dikerjakan":
+                        if existing:
+                            run_execute(
+                                "UPDATE riwayat_maintenance SET status = 'Sedang dikerjakan', tanggal_mulai = CURRENT_DATE, tanggal_selesai = NULL WHERE id_request_maintenance = %s",
+                                (data_pilih["id_request_maintenance"],)
+                            )
+                        else:
+                            run_execute(
+                                "INSERT INTO riwayat_maintenance (tanggal_mulai, status, id_request_maintenance) VALUES (CURRENT_DATE, 'Sedang dikerjakan', %s)",
+                                (data_pilih["id_request_maintenance"],)
+                            )
+                    else:  # Selesai
+                        if existing:
+                            run_execute(
+                                "UPDATE riwayat_maintenance SET status = 'Selesai', tanggal_mulai = COALESCE(tanggal_mulai, CURRENT_DATE), tanggal_selesai = CURRENT_DATE WHERE id_request_maintenance = %s",
+                                (data_pilih["id_request_maintenance"],)
+                            )
+                        else:
+                            run_execute(
+                                "INSERT INTO riwayat_maintenance (tanggal_mulai, tanggal_selesai, status, id_request_maintenance) VALUES (CURRENT_DATE, CURRENT_DATE, 'Selesai', %s)",
+                                (data_pilih["id_request_maintenance"],)
+                            )
+
+                    st.success(f"Status diubah menjadi '{status_baru}'.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal mengubah status: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -364,7 +441,7 @@ else:
     # ── Status Sewa ───────────────────────────────────────────────────────────
     with tab_sewa:
         st.subheader("Sewa Aktif Saya")
-        sql = f"""
+        sql = """
             SELECT s.id_sewa,
                    k.nomor AS "Kamar",
                    ko.nama_kos AS "Kos",
@@ -372,30 +449,54 @@ else:
                    tk.harga_sewa AS harga,
                    s.tanggal_mulai AS "Mulai",
                    s.tanggal_akhir AS "Akhir",
-                   (s.tanggal_akhir - CURRENT_DATE) AS "Sisa Hari"
+                   (s.tanggal_akhir - CURRENT_DATE) AS "Sisa Hari",
+                   COALESCE(bayar.jumlah_bulan_bayar, 0) AS jumlah_bulan_bayar,
+                   (s.tanggal_mulai + (COALESCE(bayar.jumlah_bulan_bayar, 0) * INTERVAL '1 month'))::date AS jatuh_tempo
             FROM sewa s
             JOIN kamar k ON s.id_kamar = k.id_kamar
             JOIN kos ko ON k.id_kos = ko.id_kos
             JOIN tipe_kamar tk ON k.id_tipe_kamar = tk.id_tipe_kamar
-            WHERE s.id_penyewa = {id_penyewa}
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS jumlah_bulan_bayar
+                FROM pembayaran pb
+                JOIN periode_pembayaran per ON pb.id_pembayaran = per.id_pembayaran
+                WHERE pb.id_sewa = s.id_sewa AND per.status = 'Berhasil'
+            ) bayar ON TRUE
+            WHERE s.id_penyewa = %s
               AND s.tanggal_akhir >= CURRENT_DATE
             ORDER BY s.tanggal_mulai DESC
         """
-        rows = run_query(sql)
+        rows = run_query(sql, (id_penyewa,))
         df_sewa = pd.DataFrame(rows)
 
         if df_sewa.empty:
             st.info("Tidak ada sewa aktif saat ini.")
         else:
-            # Display table (hide id_sewa and harga columns)
-            df_show = df_sewa.drop(columns=["id_sewa", "harga"])
-            df_show_fmt = df_show.copy()
-            st.dataframe(df_show_fmt, use_container_width=True, hide_index=True)
+            today = datetime.date.today()
+
+            # ── Kartu jatuh tempo per sewa ──────────────────────────────────
+            for _, row in df_sewa.iterrows():
+                jatuh_tempo = row["jatuh_tempo"]
+                sisa_hari_bayar = (jatuh_tempo - today).days
+
+                cols = st.columns(4)
+                cols[0].metric("Kamar", f"{row['Kamar']} ({row['Kos']})")
+                cols[1].metric("Mulai Sewa", row["Mulai"].strftime("%d-%m-%Y"))
+                cols[2].metric("Jatuh Tempo Bayar", jatuh_tempo.strftime("%d-%m-%Y"))
+                if sisa_hari_bayar <= 7:
+                    cols[3].metric("Sisa Waktu Bayar", f"{sisa_hari_bayar} hari", delta="Segera bayar!", delta_color="inverse")
+                else:
+                    cols[3].metric("Sisa Waktu Bayar", f"{sisa_hari_bayar} hari")
+                st.divider()
+
+            # Display table (hide internal columns)
+            df_show = df_sewa.drop(columns=["id_sewa", "harga", "jumlah_bulan_bayar", "jatuh_tempo"])
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
 
             # ── Riwayat Pembayaran ────────────────────────────────────────────
             st.divider()
             st.subheader("Riwayat Pembayaran")
-            sql_bayar = f"""
+            sql_bayar = """
                 SELECT k.nomor AS "Kamar",
                        pb.nominal AS "Nominal (Rp)",
                        pb.metode_bayar::TEXT AS "Metode",
@@ -405,10 +506,10 @@ else:
                 JOIN kamar k ON s.id_kamar = k.id_kamar
                 JOIN pembayaran pb ON s.id_sewa = pb.id_sewa
                 JOIN periode_pembayaran per ON pb.id_pembayaran = per.id_pembayaran
-                WHERE s.id_penyewa = {id_penyewa}
+                WHERE s.id_penyewa = %s
                 ORDER BY per.periode_bayar DESC
             """
-            rows_bayar = run_query(sql_bayar)
+            rows_bayar = run_query(sql_bayar, (id_penyewa,))
             df_bayar = pd.DataFrame(rows_bayar)
             if df_bayar.empty:
                 st.info("Belum ada riwayat pembayaran.")
@@ -420,9 +521,8 @@ else:
             st.divider()
             st.subheader("Bayar Sewa")
             with st.form("form_bayar", clear_on_submit=True):
-                # Pilih sewa aktif
                 sewa_options = {
-                    f"{row['Kamar']} - {row['Kos']} (Rp {row['harga']:,}/bulan)": row
+                    f"{row['Kamar']} - {row['Kos']} (Rp {row['harga']:,}/bulan) - Jatuh tempo {row['jatuh_tempo'].strftime('%d-%m-%Y')}": row
                     for _, row in df_sewa.iterrows()
                 }
                 sewa_pilih = st.selectbox("Pilih sewa:", list(sewa_options.keys()))
@@ -447,16 +547,10 @@ else:
                         # Get new pembayaran id
                         new_pb = run_query("SELECT MAX(id_pembayaran) AS id FROM pembayaran")[0]["id"]
 
-                        # Insert periode for each month
-                        import datetime
-                        today = datetime.date.today()
+                        # Insert periode untuk setiap bulan, mulai dari jatuh tempo berjalan
+                        jatuh_tempo_awal = sewa_data["jatuh_tempo"]
                         for i in range(jumlah_bulan):
-                            bulan = today.month + i
-                            tahun = today.year
-                            if bulan > 12:
-                                bulan -= 12
-                                tahun += 1
-                            periode = f"{tahun}-{bulan:02d}"
+                            periode = (pd.Timestamp(jatuh_tempo_awal) + pd.DateOffset(months=i)).strftime("%Y-%m")
                             run_execute(
                                 "INSERT INTO periode_pembayaran (periode_bayar, status, id_pembayaran) VALUES (%s, %s, %s)",
                                 (periode, "Berhasil", new_pb)
@@ -470,23 +564,45 @@ else:
     # ── Maintenance ───────────────────────────────────────────────────────────
     with tab_maint:
         st.subheader("Request Maintenance Saya")
-        sql = f"""
+        sql = """
             SELECT rm.deskripsi AS "Keluhan",
                    COALESCE(rv.status::TEXT, 'Menunggu') AS "Status",
                    COALESCE(TO_CHAR(rv.tanggal_mulai, 'DD-MM-YYYY'), '-') AS "Mulai Dikerjakan",
                    COALESCE(TO_CHAR(rv.tanggal_selesai, 'DD-MM-YYYY'), '-') AS "Selesai"
             FROM request_maintenance rm
             LEFT JOIN riwayat_maintenance rv ON rm.id_request_maintenance = rv.id_request_maintenance
-            WHERE rm.id_penyewa = {id_penyewa}
+            WHERE rm.id_penyewa = %s
             ORDER BY rv.status NULLS FIRST
         """
-        rows = run_query(sql)
+        rows = run_query(sql, (id_penyewa,))
         df = pd.DataFrame(rows)
 
         if df.empty:
             st.success("Tidak ada request maintenance.")
         else:
             st.dataframe(df, use_container_width=True, hide_index=True)
+
+        st.divider()
+        st.subheader("Ajukan Maintenance Baru")
+        with st.form("form_maintenance", clear_on_submit=True):
+            keluhan = st.text_area(
+                "Deskripsi keluhan:",
+                placeholder="Contoh: Lampu kamar mati, AC tidak dingin, keran bocor, dll."
+            )
+            submitted_maint = st.form_submit_button("Ajukan")
+            if submitted_maint:
+                if keluhan.strip() == "":
+                    st.warning("Deskripsi keluhan tidak boleh kosong.")
+                else:
+                    try:
+                        run_execute(
+                            "INSERT INTO request_maintenance (deskripsi, id_penyewa) VALUES (%s, %s)",
+                            (keluhan.strip(), id_penyewa)
+                        )
+                        st.success("Request maintenance berhasil diajukan.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal mengajukan: {e}")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
