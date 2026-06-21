@@ -1,4 +1,3 @@
-CREATE DATABASE IF NOT EXISTS manajemen_kos;
 
 CREATE TYPE status_penyewa AS ENUM ('Aktif', 'Tidak aktif');
 CREATE TYPE status_kamar AS ENUM ('Sedang disewa', 'Kosong');
@@ -35,13 +34,13 @@ CREATE TABLE IF NOT EXISTS profil_penyewa (
 
 CREATE TABLE IF NOT EXISTS kos (
     id_kos SERIAL PRIMARY KEY,
-    nama_kos VARCHAR(50) NOT NULL,
+    nama_kos VARCHAR(50) NOT NULL UNIQUE,
     alamat TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS tipe_kamar (
     id_tipe_kamar SERIAL PRIMARY KEY,
-    kategori VARCHAR(50) NOT NULL,
+    kategori VARCHAR(50) NOT NULL UNIQUE,
     deskripsi_fasilitas VARCHAR(255) NOT NULL,
     harga_sewa INT NOT NULL
 );
@@ -83,7 +82,7 @@ CREATE TABLE IF NOT EXISTS periode_pembayaran (
     id_periode SERIAL PRIMARY KEY,
     periode_bayar VARCHAR(10) NOT NULL,
     status status_pembayaran NOT NULL,
-    id_pembayaran INT  NOT NULL,
+    id_pembayaran INT NOT NULL,
 
     FOREIGN KEY (id_pembayaran) REFERENCES pembayaran(id_pembayaran)
 );

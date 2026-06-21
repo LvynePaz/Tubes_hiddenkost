@@ -196,7 +196,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO tipe_kamar (kategori, deskripsi_fasilitas, harga_sewa) VALUES
 ('Tipe A', 'Kasur, dipan, bantal guling, bantal kepala, sprei, AC, lemari, meja, kursi, gantungan baju, kamar mandi dalam', 1200000),
 ('Tipe B', 'Kasur, dipan, bantal guling, bantal kepala, sprei, kipas angin, lemari, meja, kursi, gantungan baju, kamar mandi dalam', 1000000),
-('Tipe C', 'Kasur, dipan, bantal guling, bantal kepala, sprei, kipas angin, lemari, meja, kursi, gantungan baju', 850000)
+('Tipe C', 'Kasur, dipan, bantal guling, bantal kepala, sprei, AC, lemari, meja, kursi, gantungan baju', 850000)
 ON CONFLICT DO NOTHING;
 """,
 
@@ -205,7 +205,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO kamar (nomor, luas, lantai, status, id_tipe_kamar, id_kos)
 SELECT 'O-' || gs, 12+(random()*4)::int,
        CASE WHEN gs<=4 THEN '1' ELSE '2' END,
-       CASE WHEN random()<0.7 THEN 'Sedang disewa' ELSE 'Kosong' END::status_kamar,
+       CASE WHEN random()<0.9 THEN 'Sedang disewa' ELSE 'Kosong' END::status_kamar,
        (SELECT id_tipe_kamar FROM tipe_kamar WHERE kategori='Tipe C'),
        (SELECT id_kos FROM kos WHERE nama_kos='Hidden Kost Origin')
 FROM generate_series(1,8) gs
@@ -213,7 +213,7 @@ WHERE NOT EXISTS (SELECT 1 FROM kamar WHERE nomor='O-' || gs);
 
 INSERT INTO kamar (nomor, luas, lantai, status, id_tipe_kamar, id_kos)
 SELECT 'LA-' || gs, 15+(random()*3)::int, ((gs-1)/4+1)::text,
-       CASE WHEN random()<0.75 THEN 'Sedang disewa' ELSE 'Kosong' END::status_kamar,
+       CASE WHEN random()<0.9 THEN 'Sedang disewa' ELSE 'Kosong' END::status_kamar,
        (SELECT id_tipe_kamar FROM tipe_kamar WHERE kategori='Tipe A'),
        (SELECT id_kos FROM kos WHERE nama_kos='Hidden Kost Lux')
 FROM generate_series(1,8) gs
@@ -221,7 +221,7 @@ WHERE NOT EXISTS (SELECT 1 FROM kamar WHERE nomor='LA-' || gs);
 
 INSERT INTO kamar (nomor, luas, lantai, status, id_tipe_kamar, id_kos)
 SELECT 'LB-' || gs, 14+(random()*3)::int, ((gs-1)/4+1)::text,
-       CASE WHEN random()<0.75 THEN 'Sedang disewa' ELSE 'Kosong' END::status_kamar,
+       CASE WHEN random()<0.9 THEN 'Sedang disewa' ELSE 'Kosong' END::status_kamar,
        (SELECT id_tipe_kamar FROM tipe_kamar WHERE kategori='Tipe B'),
        (SELECT id_kos FROM kos WHERE nama_kos='Hidden Kost Lux')
 FROM generate_series(1,8) gs
@@ -229,7 +229,7 @@ WHERE NOT EXISTS (SELECT 1 FROM kamar WHERE nomor='LB-' || gs);
 
 INSERT INTO kamar (nomor, luas, lantai, status, id_tipe_kamar, id_kos)
 SELECT 'LC-' || gs, 12+(random()*2)::int, ((gs-1)/4+1)::text,
-       CASE WHEN random()<0.75 THEN 'Sedang disewa' ELSE 'Kosong' END::status_kamar,
+       CASE WHEN random()<0.9 THEN 'Sedang disewa' ELSE 'Kosong' END::status_kamar,
        (SELECT id_tipe_kamar FROM tipe_kamar WHERE kategori='Tipe C'),
        (SELECT id_kos FROM kos WHERE nama_kos='Hidden Kost Lux')
 FROM generate_series(1,8) gs
@@ -247,7 +247,7 @@ SELECT
 FROM (
     SELECT CURRENT_DATE - ((random()*1500)::int * INTERVAL '1 day') AS start_date,
            row_number() OVER () AS rn
-    FROM generate_series(1,600)
+    FROM generate_series(1,50000)
 ) t
 CROSS JOIN LATERAL (
     SELECT id_penyewa FROM profil_penyewa ORDER BY random() LIMIT 1
