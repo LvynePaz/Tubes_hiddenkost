@@ -1,7 +1,8 @@
+import re
 import datetime
 import streamlit as st
 import pandas as pd
-from db import run_query, run_execute
+from db import run_query, run_execute, run_explain
 
 st.set_page_config(
     page_title="Hidden Kost – Dashboard",
@@ -70,6 +71,40 @@ st.title("HK – Sistem Manajemen Kos")
 role_label = "Dashboard Pemilik" if role == "Pemilik" else "Dashboard Penyewa"
 st.caption(role_label)
 st.divider()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  HELPER — OPTIMASI INDEX (dipakai di sub-section tab Data Kamar)
+# ══════════════════════════════════════════════════════════════════════════════
+def tampilkan_plan(plan_lines, label=""):
+    """Tampilkan plan EXPLAIN ANALYZE + highlight Seq Scan / Index Scan + waktu eksekusi."""
+    plan_text = "\n".join(plan_lines)
+    st.code(plan_text, language="sql")
+
+    if "Index Scan" in plan_text or "Index Only Scan" in plan_text or "Bitmap Index Scan" in plan_text:
+        st.success(f"{label} → memakai **Index Scan**")
+    elif "Seq Scan" in plan_text:
+        st.warning(f"{label} → memakai **Seq Scan** (baca seluruh tabel baris per baris)")
+
+    waktu = re.search(r"Execution Time:\s*([\d.]+)\s*ms", plan_text)
+    if waktu:
+        st.metric("Execution Time", f"{waktu.group(1)} ms")
+
+
+def index_sudah_ada(nama_index):
+    rows = run_query(
+        "SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = %s",
+        (nama_index,)
+    )
+    return len(rows) > 0
+
+
+def toggle_index_scan(aktif: bool):
+    """aktif=False -> paksa planner pilih Seq Scan walau index ada."""
+    if aktif:
+        run_execute("SET enable_indexscan = on; SET enable_bitmapscan = on;")
+    else:
+        run_execute("SET enable_indexscan = off; SET enable_bitmapscan = off;")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -151,6 +186,134 @@ if role == "Pemilik":
             st.dataframe(df_filtered, use_container_width=True, hide_index=True)
         else:
             st.info("Belum ada data kamar.")
+
+        # ════════════════════════════════════════════════════════════════════
+        #  SUB-SECTION: COBA OPTIMASI QUERY (EXPLAIN ANALYZE & INDEX)
+        # ════════════════════════════════════════════════════════════════════
+        st.divider()
+        st.subheader("Coba Optimasi Query — Index Scan vs Seq Scan")
+        st.caption("Analisis performa query PostgreSQL pada Sistem Informasi Hidden Kost menggunakan EXPLAIN ANALYZE.")
+
+        opt1, opt2, opt3 = st.tabs([
+            "1. Filter Status Kamar",
+            "2. Exact Match vs LIKE",
+            "3. Foreign Key (Before/After Index)",
+        ])
+
+        # ── Skenario 1: Filter status kamar (index sudah ada) ──────────────
+        with opt1:
+            st.markdown("""
+            Query ini sama dengan filter **Status** di atas. Kolom `kamar.status`
+            sudah punya index (`index_status_kamar`) sejak awal, jadi planner
+            seharusnya langsung memilih **Index Scan**.
+            """)
+
+            status_pilih = st.selectbox(
+                "Pilih status kamar:", ["Kosong", "Sedang disewa"], key="o1_status"
+            )
+            sql_o1 = "SELECT * FROM kamar WHERE status = %s::status_kamar"
+
+            colA, colB = st.columns(2)
+            with colA:
+                if st.button("Jalankan (Normal, pakai index)", key="o1_normal"):
+                    toggle_index_scan(True)
+                    plan = run_explain(sql_o1, (status_pilih,))
+                    tampilkan_plan(plan, "Kondisi normal")
+            with colB:
+                if st.button("Jalankan (Paksa Seq Scan)", key="o1_force"):
+                    toggle_index_scan(False)
+                    plan = run_explain(sql_o1, (status_pilih,))
+                    toggle_index_scan(True)
+                    tampilkan_plan(plan, "Index dimatikan paksa")
+
+        # ── Skenario 2: Exact match vs LIKE ──────────────────────────────────
+        with opt2:
+            st.markdown("""
+            Index `index_nama_penyewa` adalah B-Tree biasa. B-Tree **hanya
+            efektif untuk pencarian exact match (`=`)**. Begitu dipakai
+            `LIKE '%kata%'` (wildcard di depan), index ini **tidak terpakai**
+            dan otomatis jadi Seq Scan.
+            """)
+
+            contoh_nama = run_query("SELECT nama_lengkap FROM profil_penyewa ORDER BY id_penyewa LIMIT 1")
+            nama_default = contoh_nama[0]["nama_lengkap"] if contoh_nama else "Penyewa ke-1"
+
+            nama_cari = st.text_input(
+                "Cari nama (isi nama lengkap dari data):", value=nama_default, key="o2_nama"
+            )
+
+            colC, colD = st.columns(2)
+            with colC:
+                if st.button("Jalankan Exact Match ( = )", key="o2_exact"):
+                    plan = run_explain(
+                        "SELECT * FROM profil_penyewa WHERE nama_lengkap = %s", (nama_cari,)
+                    )
+                    tampilkan_plan(plan, "WHERE nama_lengkap = ...")
+            with colD:
+                if st.button("Jalankan LIKE ( %...% )", key="o2_like"):
+                    plan = run_explain(
+                        "SELECT * FROM profil_penyewa WHERE nama_lengkap LIKE %s", (f"%{nama_cari}%",)
+                    )
+                    tampilkan_plan(plan, "WHERE nama_lengkap LIKE '%...%'")
+
+        # ── Skenario 3: FK sewa.id_kamar belum ada index ─────────────────────
+        with opt3:
+            st.markdown("""
+            Foreign key di PostgreSQL **tidak otomatis dapat index** (berbeda
+            dengan Primary Key). Kolom `sewa.id_kamar` dipakai untuk
+            menampilkan riwayat sewa per kamar, tapi belum ada index-nya.
+            Bandingkan performa **sebelum** dan **sesudah** index dibuat.
+            """)
+
+            ada_index_kamar = index_sudah_ada("index_id_kamar_sewa")
+            if ada_index_kamar:
+                st.info("Index `index_id_kamar_sewa` sudah dibuat.")
+            else:
+                st.warning("Index `index_id_kamar_sewa` **belum ada** — query di bawah seharusnya Seq Scan.")
+
+            contoh_kamar = run_query("SELECT id_kamar, nomor FROM kamar ORDER BY id_kamar LIMIT 1")
+            id_kamar_contoh = contoh_kamar[0]["id_kamar"] if contoh_kamar else 1
+            nomor_contoh = contoh_kamar[0]["nomor"] if contoh_kamar else "-"
+
+            id_kamar_input = st.number_input(
+                f"id_kamar (contoh: {id_kamar_contoh} = {nomor_contoh}):",
+                min_value=1, value=int(id_kamar_contoh), key="o3_id"
+            )
+
+            colE, colF = st.columns(2)
+            with colE:
+                if st.button("Jalankan EXPLAIN ANALYZE", key="o3_run"):
+                    plan = run_explain("SELECT * FROM sewa WHERE id_kamar = %s", (id_kamar_input,))
+                    tampilkan_plan(plan, "Sebelum/sesudah index")
+            with colF:
+                if not ada_index_kamar:
+                    if st.button("Buat Index Sekarang", key="o3_create"):
+                        try:
+                            run_execute("CREATE INDEX index_id_kamar_sewa ON sewa(id_kamar)")
+                            st.success("Index berhasil dibuat. Jalankan ulang EXPLAIN ANALYZE di atas untuk lihat perubahannya.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Gagal membuat index: {e}")
+                else:
+                    if st.button("Hapus Index (untuk demo ulang)", key="o3_drop"):
+                        try:
+                            run_execute("DROP INDEX index_id_kamar_sewa")
+                            st.success("Index dihapus.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Gagal menghapus index: {e}")
+
+            st.divider()
+            st.markdown("**Ringkasan index aktif di tabel `kamar` & `sewa`:**")
+            sql_idx = """
+                SELECT tablename AS "Tabel", indexname AS "Nama Index", indexdef AS "Definisi"
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename IN ('kamar', 'sewa')
+                ORDER BY tablename, indexname
+            """
+            df_idx = pd.DataFrame(run_query(sql_idx))
+            if not df_idx.empty:
+                st.dataframe(df_idx, use_container_width=True, hide_index=True)
 
     # ── Tab Pendapatan ────────────────────────────────────────────────────────
     with tab_pendapatan:
