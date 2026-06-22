@@ -44,6 +44,8 @@ DROP INDEX IF EXISTS idx_pembayaran_id_sewa;
 DROP INDEX IF EXISTS idx_periode_id_pembayaran;
 DROP INDEX IF EXISTS idx_reqmaint_id_penyewa;
 
+
+
 -- Query 1: dashboard penyewa -> sewa milik 1 penyewa yang masih aktif
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT * FROM sewa WHERE id_penyewa = 1 AND tanggal_akhir >= CURRENT_DATE;
@@ -137,3 +139,5 @@ SELECT tablename AS "Tabel", indexname AS "Nama Index", indexdef AS "Definisi"
 FROM pg_indexes
 WHERE schemaname = 'public'
 ORDER BY tablename, indexname;
+
+SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'sewa';

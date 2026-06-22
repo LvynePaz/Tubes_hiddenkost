@@ -1,20 +1,4 @@
-"""
-queries.py — Kumpulan SQL query dipakai halaman.py, dipisah per kategori
-sesuai analisis di file 03_olap_queries.sql & 04_oltp_queries.sql.
 
-Kenapa dipisah dari halaman.py?
-  - halaman.py SEHARUSNYA cuma mengatur UI (tabs, form, tampilan),
-    bukan menyimpan ratusan baris SQL mentah di tengah-tengah logic Streamlit.
-  - Dengan dipisah, gampang dilihat: query mana yang ANALITIS (OLAP, butuh
-    agregasi & boleh agak berat) vs query mana yang TRANSAKSIONAL (OLTP,
-    harus cepat karena dipanggil terus-menerus tiap user berinteraksi).
-  - Query di sini PERSIS SAMA dengan yang sudah ada di halaman.py asli —
-    tidak ada perubahan logika, cuma pemindahan lokasi + penamaan.
-
-Catatan: halaman "Optimasi Query" (mode demo Index Scan vs Seq Scan) TIDAK
-dipindah ke sini, karena query di halaman itu memang sengaja dibuat dinamis
-untuk keperluan demonstrasi EXPLAIN, bukan query operasional aplikasi.
-"""
 
 # =====================================================================
 # OLTP — dipanggil berulang, baca/tulis baris spesifik
