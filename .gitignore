@@ -1,0 +1,6 @@
+#jangan masukan file ini atau folder ini 
+
+.agents 
+.venv
+.vscode
+skills-lock.json
