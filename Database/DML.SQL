@@ -123,22 +123,3 @@ SELECT
     id_request_maintenance
 FROM request_maintenance;
 
--- ---------------------------------------------------------------------
--- VERIFIKASI VOLUME DATA (jalankan setelah seeding selesai)
--- ---------------------------------------------------------------------
-SELECT 'kos' AS tabel, COUNT(*) FROM kos
-UNION ALL SELECT 'tipe_kamar', COUNT(*) FROM tipe_kamar
-UNION ALL SELECT 'kamar', COUNT(*) FROM kamar
-UNION ALL SELECT 'roles', COUNT(*) FROM roles
-UNION ALL SELECT 'users', COUNT(*) FROM users
-UNION ALL SELECT 'profil_penyewa', COUNT(*) FROM profil_penyewa
-UNION ALL SELECT 'sewa', COUNT(*) FROM sewa
-UNION ALL SELECT 'pembayaran', COUNT(*) FROM pembayaran
-UNION ALL SELECT 'periode_pembayaran', COUNT(*) FROM periode_pembayaran
-UNION ALL SELECT 'request_maintenance', COUNT(*) FROM request_maintenance
-UNION ALL SELECT 'riwayat_maintenance', COUNT(*) FROM riwayat_maintenance;
-
--- Catatan: script perbaikan data (sewa bentrok/duplikat, normalisasi nomor
--- kamar per lantai) dipindahkan ke file terpisah "buat baikin query.sql"
--- karena itu BUKAN seeding awal, melainkan data-fix -- tidak relevan untuk
--- dijalankan ulang di database yang bersih/baru.

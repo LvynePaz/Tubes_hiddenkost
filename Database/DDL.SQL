@@ -1,26 +1,17 @@
 
--- ---------------------------------------------------------------------
--- ENUM TYPES
--- ---------------------------------------------------------------------
 CREATE TYPE status_penyewa AS ENUM ('Aktif', 'Tidak aktif');
 CREATE TYPE status_kamar AS ENUM ('Sedang disewa', 'Kosong');
 CREATE TYPE status_maintenance AS ENUM ('Tertunda', 'Sedang dikerjakan', 'Selesai');
 CREATE TYPE metode_pembayaran AS ENUM ('Tunai', 'Transfer');
 CREATE TYPE status_pembayaran AS ENUM ('Gagal', 'Berhasil');
 
--- ---------------------------------------------------------------------
--- TABEL: roles
--- Fungsi: master role pengguna (admin / penyewa)
--- ---------------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS roles (
     id_roles SERIAL PRIMARY KEY,
     nama_role VARCHAR(25) NOT NULL UNIQUE
 );
 
--- ---------------------------------------------------------------------
--- TABEL: users
--- Fungsi: akun login (1 user = 1 role)
--- ---------------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS users (
     id_user SERIAL PRIMARY KEY,
     email VARCHAR(50) NOT NULL UNIQUE,
@@ -30,10 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
     FOREIGN KEY (id_roles) REFERENCES roles(id_roles)
 );
 
--- ---------------------------------------------------------------------
--- TABEL: profil_penyewa
--- Fungsi: data diri penyewa, 1:1 dengan users
--- ---------------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS profil_penyewa (
     id_penyewa SERIAL PRIMARY KEY,
     nama_lengkap VARCHAR(100) NOT NULL,
@@ -47,20 +35,13 @@ CREATE TABLE IF NOT EXISTS profil_penyewa (
     FOREIGN KEY (id_user) REFERENCES users(id_user)
 );
 
--- ---------------------------------------------------------------------
--- TABEL: kos
--- Fungsi: master properti kos (Hidden Kost Origin / Lux)
--- ---------------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS kos (
     id_kos SERIAL PRIMARY KEY,
     nama_kos VARCHAR(50) NOT NULL UNIQUE,
     alamat TEXT NOT NULL
 );
 
--- ---------------------------------------------------------------------
--- TABEL: tipe_kamar
--- Fungsi: master tipe kamar & harga sewa
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tipe_kamar (
     id_tipe_kamar SERIAL PRIMARY KEY,
     kategori VARCHAR(50) NOT NULL UNIQUE,
@@ -68,10 +49,6 @@ CREATE TABLE IF NOT EXISTS tipe_kamar (
     harga_sewa INT NOT NULL
 );
 
--- ---------------------------------------------------------------------
--- TABEL: kamar
--- Fungsi: unit kamar fisik, terhubung ke kos & tipe_kamar
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS kamar (
     id_kamar SERIAL PRIMARY KEY,
     nomor VARCHAR(8) NOT NULL,
@@ -85,10 +62,7 @@ CREATE TABLE IF NOT EXISTS kamar (
     FOREIGN KEY (id_kos) REFERENCES kos(id_kos)
 );
 
--- ---------------------------------------------------------------------
--- TABEL: sewa  (TABEL TRANSAKSI UTAMA — paling sering di-JOIN/filter)
--- Fungsi: kontrak sewa penyewa atas suatu kamar
--- ---------------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS sewa (
     id_sewa SERIAL PRIMARY KEY,
     tanggal_mulai DATE NOT NULL,
@@ -100,10 +74,7 @@ CREATE TABLE IF NOT EXISTS sewa (
     FOREIGN KEY (id_kamar) REFERENCES kamar (id_kamar)
 );
 
--- ---------------------------------------------------------------------
--- TABEL: pembayaran
--- Fungsi: transaksi pembayaran atas satu sewa
--- ---------------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS pembayaran (
     id_pembayaran SERIAL PRIMARY KEY,
     nominal INT NOT NULL,
@@ -113,10 +84,6 @@ CREATE TABLE IF NOT EXISTS pembayaran (
     FOREIGN KEY (id_sewa) REFERENCES sewa(id_sewa)
 );
 
--- ---------------------------------------------------------------------
--- TABEL: periode_pembayaran
--- Fungsi: status pembayaran per periode (bulan) bayar
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS periode_pembayaran (
     id_periode SERIAL PRIMARY KEY,
     periode_bayar VARCHAR(10) NOT NULL,
@@ -126,10 +93,6 @@ CREATE TABLE IF NOT EXISTS periode_pembayaran (
     FOREIGN KEY (id_pembayaran) REFERENCES pembayaran(id_pembayaran)
 );
 
--- ---------------------------------------------------------------------
--- TABEL: request_maintenance
--- Fungsi: pengajuan keluhan/perbaikan oleh penyewa
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS request_maintenance (
     id_request_maintenance SERIAL PRIMARY KEY,
     deskripsi VARCHAR(255) NOT NULL,
@@ -138,10 +101,6 @@ CREATE TABLE IF NOT EXISTS request_maintenance (
     FOREIGN KEY (id_penyewa) REFERENCES profil_penyewa(id_penyewa)
 );
 
--- ---------------------------------------------------------------------
--- TABEL: riwayat_maintenance
--- Fungsi: progres penanganan 1 request (1:1 dengan request_maintenance)
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS riwayat_maintenance (
     id_riwayat_maintenance SERIAL PRIMARY KEY,
     tanggal_mulai DATE,
@@ -152,12 +111,6 @@ CREATE TABLE IF NOT EXISTS riwayat_maintenance (
     FOREIGN KEY (id_request_maintenance) REFERENCES request_maintenance(id_request_maintenance)
 );
 
--- ---------------------------------------------------------------------
--- INDEX DASAR (dibuat bersamaan dengan skema)
--- Catatan: index lanjutan (yang menyasar tabel "sewa" & "pembayaran")
--- ada di file 05_optimal_index_dan_explain.sql, bukan di sini, karena
--- baru relevan setelah kita tahu pola query OLTP/OLAP-nya (lihat file 3 & 4).
--- ---------------------------------------------------------------------
 CREATE INDEX index_nama_penyewa  ON profil_penyewa (nama_lengkap);
 CREATE INDEX index_nomor_kamar   ON kamar (nomor);
 CREATE INDEX index_status_penyewa ON profil_penyewa (status);
