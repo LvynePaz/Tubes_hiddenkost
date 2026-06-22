@@ -42,6 +42,24 @@ st.markdown("""
         border-radius: 8px 8px 0 0;
         padding: 8px 16px;
     }
+    .algo-card {
+        border-radius: 10px;
+        padding: 14px 18px;
+        margin-bottom: 10px;
+        border-left: 4px solid;
+    }
+    .algo-index {
+        background: #0f2d1f;
+        border-color: #22c55e;
+    }
+    .algo-seq {
+        background: #2d1f0f;
+        border-color: #f59e0b;
+    }
+    .algo-bitmap {
+        background: #0f1f2d;
+        border-color: #38bdf8;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -79,17 +97,16 @@ with st.sidebar:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  HELPER — OPTIMASI INDEX (dipakai di sub-section tab Data Kamar)
+#  HELPER
 # ══════════════════════════════════════════════════════════════════════════════
 def tampilkan_plan(plan_lines, label=""):
-    """Tampilkan plan EXPLAIN ANALYZE + highlight Seq Scan / Index Scan + waktu eksekusi."""
     plan_text = "\n".join(plan_lines)
     st.code(plan_text, language="sql")
 
     if "Index Scan" in plan_text or "Index Only Scan" in plan_text or "Bitmap Index Scan" in plan_text:
         st.success(f"{label} → memakai **Index Scan**")
     elif "Seq Scan" in plan_text:
-        st.warning(f"{label} → memakai **Seq Scan** (baca seluruh tabel baris per baris)")
+        st.warning(f"{label} → memakai **Seq Scan** (baca seluruh tabel)")
 
     waktu = re.search(r"Execution Time:\s*([\d.]+)\s*ms", plan_text)
     if waktu:
@@ -104,16 +121,28 @@ def index_sudah_ada(nama_index):
     return len(rows) > 0
 
 
-def toggle_index_scan(aktif: bool):
-    """aktif=False -> paksa planner pilih Seq Scan walau index ada."""
-    if aktif:
-        run_execute("SET enable_indexscan = on; SET enable_bitmapscan = on;")
-    else:
-        run_execute("SET enable_indexscan = off; SET enable_bitmapscan = off;")
+def ekstrak_algoritma(plan_lines):
+    """Ekstrak algoritma utama dari EXPLAIN ANALYZE output."""
+    plan_text = "\n".join(plan_lines)
+    if "Index Only Scan" in plan_text:
+        return "Index Only Scan", "index"
+    elif "Bitmap Index Scan" in plan_text or "Bitmap Heap Scan" in plan_text:
+        return "Bitmap Index Scan", "bitmap"
+    elif "Index Scan" in plan_text:
+        return "Index Scan", "index"
+    elif "Seq Scan" in plan_text:
+        return "Seq Scan", "seq"
+    return "Unknown", "seq"
+
+
+def ekstrak_waktu(plan_lines):
+    plan_text = "\n".join(plan_lines)
+    waktu = re.search(r"Execution Time:\s*([\d.]+)\s*ms", plan_text)
+    return float(waktu.group(1)) if waktu else None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  OPTIMASI QUERY PAGE (terpisah dari dashboard)
+#  OPTIMASI QUERY PAGE
 # ══════════════════════════════════════════════════════════════════════════════
 if halaman == "Optimasi Query":
     st.title("Optimasi Query — Index Scan vs Seq Scan")
@@ -128,10 +157,11 @@ if halaman == "Optimasi Query":
     c2.metric("Total Data Penyewa", f"{penyewa_count:,} baris")
     st.divider()
 
-    # ── Auto-run: database pilih sendiri ──────────────────────────────────
+    # ── Section 1: Perbandingan Otomatis ──────────────────────────────────────
     st.subheader("Perbandingan Otomatis — Database Pilih Sendiri")
 
     if st.button("Jalankan Semua Perbandingan", type="primary", key="auto_run_all"):
+
         # --- Skenario 1: Cari sewa per penyewa ---
         st.markdown("---")
         st.markdown("### 1. Cari Riwayat Sewa per Penyewa")
@@ -201,53 +231,206 @@ if halaman == "Optimasi Query":
             tampilkan_plan(plan_after_3, "Dengan index")
 
         st.markdown("---")
-        st.success("Semua perbandingan selesai! Lihat hasil di atas — PostgreSQL otomatis memilih algoritma tercepat.")
+        st.success("Semua perbandingan selesai!")
 
-    # ── Manual: buat/hapus index ──────────────────────────────────────────
     st.divider()
-    st.subheader("Kelola Index Manual")
 
-    rekomendasi = [
-        ("sewa", "id_kamar", "index_id_kamar_sewa"),
-        ("sewa", "id_penyewa", "index_id_penyewa_sewa"),
-        ("pembayaran", "id_sewa", "index_id_sewa_pembayaran"),
-        ("periode_pembayaran", "id_pembayaran", "index_id_pembayaran_periode"),
-        ("request_maintenance", "id_penyewa", "index_id_penyewa_request"),
+    # ══════════════════════════════════════════════════════════════════════════
+    #  Section 2: PostgreSQL Pilih Algoritma Apa untuk HK Kos?  (BARU)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.subheader("PostgreSQL Pilih Algoritma Apa untuk Sistem HK Kos?")
+    st.caption(
+        "Analisis otomatis seluruh query utama sistem Hidden Kost. "
+        "PostgreSQL memilih sendiri algoritma tercepat berdasarkan statistik data aktual."
+    )
+
+    # Definisi semua query utama sistem HK Kos
+    QUERY_CATALOG = [
+        {
+            "label": "Sewa aktif per penyewa",
+            "konteks": "Dipakai di Dashboard Penyewa → tab Status Sewa",
+            "sql": "SELECT * FROM sewa WHERE id_penyewa = %s AND tanggal_akhir >= CURRENT_DATE",
+            "param_fn": lambda: (run_query("SELECT id_penyewa FROM profil_penyewa ORDER BY id_penyewa LIMIT 1")[0]["id_penyewa"],),
+        },
+        {
+            "label": "Sewa aktif per kamar",
+            "konteks": "Dipakai di sinkronisasi status kamar & Dashboard Pemilik → tab Data Kamar",
+            "sql": "SELECT * FROM sewa WHERE id_kamar = %s AND tanggal_akhir >= CURRENT_DATE",
+            "param_fn": lambda: (run_query("SELECT id_kamar FROM kamar ORDER BY id_kamar LIMIT 1")[0]["id_kamar"],),
+        },
+        {
+            "label": "Semua sewa yang masih aktif (tanggal_akhir)",
+            "konteks": "Dipakai di UPDATE sinkronisasi status kamar — scan semua sewa",
+            "sql": "SELECT id_sewa, id_kamar FROM sewa WHERE tanggal_akhir >= CURRENT_DATE",
+            "param_fn": lambda: (),
+        },
+        {
+            "label": "Cari penyewa by nama (exact match)",
+            "konteks": "Fitur pencarian nama di tab Data Penyewa",
+            "sql": "SELECT * FROM profil_penyewa WHERE nama_lengkap = %s",
+            "param_fn": lambda: (run_query("SELECT nama_lengkap FROM profil_penyewa ORDER BY id_penyewa LIMIT 1")[0]["nama_lengkap"],),
+        },
+        {
+            "label": "Cari penyewa by status",
+            "konteks": "Filter penyewa aktif / tidak aktif",
+            "sql": "SELECT * FROM profil_penyewa WHERE status = 'Aktif'",
+            "param_fn": lambda: (),
+        },
+        {
+            "label": "Cari kamar by status",
+            "konteks": "Filter kamar kosong / sedang disewa",
+            "sql": "SELECT * FROM kamar WHERE status = 'Kosong'",
+            "param_fn": lambda: (),
+        },
+        {
+            "label": "Cari kamar by nomor",
+            "konteks": "Lookup kamar spesifik",
+            "sql": "SELECT * FROM kamar WHERE nomor = %s",
+            "param_fn": lambda: (run_query("SELECT nomor FROM kamar ORDER BY id_kamar LIMIT 1")[0]["nomor"],),
+        },
+        {
+            "label": "Pembayaran per sewa",
+            "konteks": "JOIN ke tabel sewa saat tampil riwayat pembayaran",
+            "sql": "SELECT * FROM pembayaran WHERE id_sewa = %s",
+            "param_fn": lambda: (run_query("SELECT id_sewa FROM sewa ORDER BY id_sewa LIMIT 1")[0]["id_sewa"],),
+        },
+        {
+            "label": "Periode per pembayaran",
+            "konteks": "JOIN ke pembayaran saat hitung jumlah bulan bayar",
+            "sql": "SELECT * FROM periode_pembayaran WHERE id_pembayaran = %s",
+            "param_fn": lambda: (run_query("SELECT id_pembayaran FROM pembayaran ORDER BY id_pembayaran LIMIT 1")[0]["id_pembayaran"],),
+        },
+        {
+            "label": "Request maintenance per penyewa",
+            "konteks": "Tab Maintenance di Dashboard Penyewa",
+            "sql": "SELECT * FROM request_maintenance WHERE id_penyewa = %s",
+            "param_fn": lambda: (run_query("SELECT id_penyewa FROM request_maintenance ORDER BY id_penyewa LIMIT 1")[0]["id_penyewa"],),
+        },
     ]
 
-    data_rekom = []
-    for tabel, kolom, nama_idx in rekomendasi:
-        status = "Ada" if index_sudah_ada(nama_idx) else "Belum ada"
-        data_rekom.append({"Tabel": tabel, "Kolom": kolom, "Nama Index": nama_idx, "Status": status})
-    st.dataframe(pd.DataFrame(data_rekom), use_container_width=True, hide_index=True)
+    if st.button("Analisis Semua Query Sistem HK Kos", type="primary", key="analisis_algo"):
+        hasil = []
+        progress = st.progress(0, text="Menjalankan analisis...")
 
-    col_buat, col_hapus = st.columns(2)
-    with col_buat:
-        if st.button("Buat Semua Index", type="primary", key="buat_semua"):
-            n = 0
-            for tabel, kolom, nama_idx in rekomendasi:
-                if not index_sudah_ada(nama_idx):
-                    try:
-                        run_execute(f"CREATE INDEX {nama_idx} ON {tabel}({kolom})")
-                        n += 1
-                    except Exception:
-                        pass
-            st.success(f"{n} index baru dibuat.") if n else st.info("Semua sudah ada.")
-            st.rerun()
-    with col_hapus:
-        if st.button("Hapus Semua Index (reset demo)", key="hapus_semua"):
-            n = 0
-            for _, _, nama_idx in rekomendasi:
-                if index_sudah_ada(nama_idx):
-                    try:
-                        run_execute(f"DROP INDEX {nama_idx}")
-                        n += 1
-                    except Exception:
-                        pass
-            st.success(f"{n} index dihapus.") if n else st.info("Tidak ada yang perlu dihapus.")
-            st.rerun()
+        for i, q in enumerate(QUERY_CATALOG):
+            try:
+                params = q["param_fn"]()
+                if params:
+                    plan = run_explain(q["sql"], params)
+                else:
+                    plan = run_explain(q["sql"])
+                algo, tipe = ekstrak_algoritma(plan)
+                waktu = ekstrak_waktu(plan)
+                hasil.append({
+                    "query": q["label"],
+                    "konteks": q["konteks"],
+                    "algoritma": algo,
+                    "tipe": tipe,
+                    "waktu_ms": waktu,
+                    "plan": plan,
+                })
+            except Exception as e:
+                hasil.append({
+                    "query": q["label"],
+                    "konteks": q["konteks"],
+                    "algoritma": f"Error: {e}",
+                    "tipe": "error",
+                    "waktu_ms": None,
+                    "plan": [],
+                })
+            progress.progress((i + 1) / len(QUERY_CATALOG), text=f"Menganalisis: {q['label']}...")
 
-    # Ringkasan semua index
+        progress.empty()
+
+        # ── Ringkasan hasil ────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("### Ringkasan — Algoritma yang Dipilih PostgreSQL")
+
+        n_index = sum(1 for h in hasil if h["tipe"] == "index")
+        n_bitmap = sum(1 for h in hasil if h["tipe"] == "bitmap")
+        n_seq = sum(1 for h in hasil if h["tipe"] == "seq")
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Index Scan", f"{n_index} query", help="PostgreSQL yakin index lebih cepat karena selectivity tinggi")
+        col2.metric("Bitmap Index Scan", f"{n_bitmap} query", help="Dipakai saat banyak baris cocok — gabungan index + heap")
+        col3.metric("Seq Scan", f"{n_seq} query", help="PostgreSQL pilih ini karena lebih murah dari index untuk data besar / low selectivity")
+
+        st.markdown("---")
+
+        # ── Tabel ringkasan ────────────────────────────────────────────────
+        df_ringkasan = pd.DataFrame([
+            {
+                "Query": h["query"],
+                "Konteks Penggunaan": h["konteks"],
+                "Algoritma Dipilih": h["algoritma"],
+                "Execution Time (ms)": f"{h['waktu_ms']:.3f}" if h["waktu_ms"] else "-",
+            }
+            for h in hasil
+        ])
+
+        def warna_algo(val):
+            if "Index" in val:
+                return "background-color: #0f2d1f; color: #22c55e"
+            elif "Seq" in val:
+                return "background-color: #2d1f0f; color: #f59e0b"
+            return ""
+
+        st.dataframe(
+            df_ringkasan.style.applymap(warna_algo, subset=["Algoritma Dipilih"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # ── Detail per query ───────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("### Detail EXPLAIN ANALYZE per Query")
+
+        ALASAN = {
+            "index": "PostgreSQL memilih **Index Scan** karena query memfilter kolom yang punya index dengan **selectivity tinggi** — hanya sedikit baris yang cocok, lebih efisien langsung loncat ke baris via index daripada baca seluruh tabel.",
+            "bitmap": "PostgreSQL memilih **Bitmap Index Scan** karena cukup banyak baris yang cocok. Lebih efisien dari Index Scan murni untuk kasus ini — baca index dulu, buat bitmap di memory, baru akses heap sekali.",
+            "seq": "PostgreSQL memilih **Seq Scan** karena query ini mengambil **proporsi besar** dari tabel (misal: semua status 'Aktif' = ~80% baris), sehingga biaya membaca index + heap lebih mahal dari langsung scan seluruh tabel.",
+        }
+
+        for h in hasil:
+            tipe = h["tipe"]
+            if tipe == "error":
+                continue
+
+            with st.expander(f"{'🟢' if tipe == 'index' else '🟡' if tipe == 'seq' else '🔵'} {h['query']} — {h['algoritma']}"):
+                st.caption(f"**Konteks:** {h['konteks']}")
+                if h["waktu_ms"]:
+                    st.metric("Execution Time", f"{h['waktu_ms']:.3f} ms")
+
+                # Penjelasan alasan
+                alasan = ALASAN.get(tipe, "")
+                if alasan:
+                    if tipe == "index":
+                        st.success(alasan)
+                    elif tipe == "seq":
+                        st.warning(alasan)
+                    else:
+                        st.info(alasan)
+
+                # EXPLAIN output
+                st.code("\n".join(h["plan"]), language="sql")
+
+        # ── Kesimpulan ─────────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("### Kesimpulan Pilihan Algoritma Sistem HK Kos")
+
+        st.info(
+            "**PostgreSQL memilih Index Scan** untuk query yang memfilter berdasarkan ID spesifik "
+            "(id_penyewa, id_kamar, id_sewa, id_pembayaran) karena kolom-kolom ini punya **high selectivity** — "
+            "hasil query hanya beberapa baris dari ratusan/ribuan baris.\n\n"
+            "**PostgreSQL memilih Seq Scan** untuk filter berdasarkan kolom ENUM seperti `status = 'Aktif'` atau "
+            "`status = 'Kosong'` karena **low selectivity** — nilai ENUM hanya 2-3 pilihan sehingga banyak baris "
+            "cocok, membuat index tidak efisien.\n\n"
+            "Ini membuktikan bahwa index di `kamar(status)` dan `profil_penyewa(status)` yang sudah ada di DDL "
+            "kemungkinan **tidak dipakai** oleh planner PostgreSQL — sesuai dengan teori bahwa index pada kolom "
+            "low cardinality sering diabaikan planner demi Seq Scan yang lebih murah."
+        )
+
+    # Semua index yang ada
     st.divider()
     st.subheader("Semua Index di Database")
     sql_idx = """
@@ -262,6 +445,7 @@ if halaman == "Optimasi Query":
     st.divider()
     st.caption("ABD KELOMPOK 2 @2026")
     st.stop()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  HEADER DASHBOARD
@@ -298,12 +482,10 @@ if role == "Pemilik":
 
     st.divider()
 
-    # ── Tabs ──────────────────────────────────────────────────────────────────
     tab_kamar, tab_pendapatan, tab_pembayaran, tab_penyewa, tab_maint = st.tabs([
         "Data Kamar", "Pendapatan", "Pembayaran", "Data Penyewa", "Maintenance"
     ])
 
-    # ── Tab Data Kamar ────────────────────────────────────────────────────────
     with tab_kamar:
         st.subheader("Data Seluruh Kamar")
         sql = """
@@ -335,7 +517,6 @@ if role == "Pemilik":
         df = pd.DataFrame(rows)
 
         if not df.empty:
-            # Filter
             filter_kos = st.selectbox("Filter Kos:", ["Semua"] + sorted(df["Kos"].unique().tolist()), key="filter_kos")
             filter_status = st.radio("Filter Status:", ["Semua", "Kosong", "Sedang disewa"], horizontal=True, key="filter_status")
 
@@ -350,7 +531,6 @@ if role == "Pemilik":
         else:
             st.info("Belum ada data kamar.")
 
-    # ── Tab Pendapatan ────────────────────────────────────────────────────────
     with tab_pendapatan:
         st.subheader("Pendapatan per Kos")
         sql = """
@@ -391,10 +571,8 @@ if role == "Pemilik":
             df2["Total Pendapatan"] = df2["Total Pendapatan"].apply(lambda x: f"Rp {x:,}")
             st.dataframe(df2, use_container_width=True, hide_index=True)
 
-    # ── Tab Pembayaran ────────────────────────────────────────────────────────
     with tab_pembayaran:
         st.subheader("Riwayat Pembayaran")
-       
         sql = """
             SELECT pp_penyewa.nama_lengkap AS "Penyewa",
                    k.nomor AS "Kamar",
@@ -416,16 +594,13 @@ if role == "Pemilik":
         rows = run_query(sql)
         df = pd.DataFrame(rows)
         if not df.empty:
-            # Filter
             filter_status_bayar = st.radio("Filter Status:", ["Semua", "Berhasil", "Gagal"], horizontal=True, key="filter_bayar")
             df_filtered = df.copy()
             if filter_status_bayar != "Semua":
                 df_filtered = df_filtered[df_filtered["Status Bayar"] == filter_status_bayar]
-
             df_filtered["Nominal (Rp)"] = df_filtered["Nominal (Rp)"].apply(lambda x: f"Rp {x:,}")
             st.dataframe(df_filtered, use_container_width=True, hide_index=True)
 
-            # Summary
             st.divider()
             st.subheader("Ringkasan Metode Pembayaran")
             sql_metode = """
@@ -445,7 +620,6 @@ if role == "Pemilik":
         else:
             st.info("Belum ada data pembayaran untuk sewa yang aktif.")
 
-    # ── Tab Data Penyewa ──────────────────────────────────────────────────────
     with tab_penyewa:
         st.subheader("Data Penyewa Aktif")
         sql = """
@@ -477,7 +651,6 @@ if role == "Pemilik":
         else:
             st.info("Belum ada penyewa aktif.")
 
-    # ── Tab Maintenance ───────────────────────────────────────────────────────
     with tab_maint:
         st.subheader("Rekap Maintenance")
         sql = """
@@ -504,14 +677,12 @@ if role == "Pemilik":
             df_filtered = df.copy()
             if filter_maint != "Semua":
                 df_filtered = df_filtered[df_filtered["Status"] == filter_maint]
-
             st.dataframe(df_filtered, use_container_width=True, hide_index=True)
         else:
             st.info("Belum ada data maintenance.")
 
         st.divider()
         st.subheader("Kelola Maintenance")
-
         pending = run_query("""
             SELECT rm.id_request_maintenance, rm.deskripsi, pp.nama_lengkap,
                    COALESCE(rv.status::TEXT, 'Belum ditangani') AS status
@@ -532,11 +703,7 @@ if role == "Pemilik":
             pilih = st.selectbox("Pilih request untuk dikelola:", list(opsi.keys()), key="pilih_maint")
             data_pilih = opsi[pilih]
 
-            status_baru = st.selectbox(
-                "Ubah status menjadi:",
-                ["Tertunda", "Sedang dikerjakan", "Selesai"],
-                key="status_baru_maint"
-            )
+            status_baru = st.selectbox("Ubah status menjadi:", ["Tertunda", "Sedang dikerjakan", "Selesai"], key="status_baru_maint")
 
             if st.button("Update Status", use_container_width=True, type="primary", key="btn_update_maint"):
                 try:
@@ -544,41 +711,21 @@ if role == "Pemilik":
                         "SELECT id_riwayat_maintenance FROM riwayat_maintenance WHERE id_request_maintenance = %s",
                         (data_pilih["id_request_maintenance"],)
                     )
-
                     if status_baru == "Tertunda":
                         if existing:
-                            run_execute(
-                                "UPDATE riwayat_maintenance SET status = 'Tertunda', tanggal_mulai = NULL, tanggal_selesai = NULL WHERE id_request_maintenance = %s",
-                                (data_pilih["id_request_maintenance"],)
-                            )
+                            run_execute("UPDATE riwayat_maintenance SET status = 'Tertunda', tanggal_mulai = NULL, tanggal_selesai = NULL WHERE id_request_maintenance = %s", (data_pilih["id_request_maintenance"],))
                         else:
-                            run_execute(
-                                "INSERT INTO riwayat_maintenance (status, id_request_maintenance) VALUES ('Tertunda', %s)",
-                                (data_pilih["id_request_maintenance"],)
-                            )
+                            run_execute("INSERT INTO riwayat_maintenance (status, id_request_maintenance) VALUES ('Tertunda', %s)", (data_pilih["id_request_maintenance"],))
                     elif status_baru == "Sedang dikerjakan":
                         if existing:
-                            run_execute(
-                                "UPDATE riwayat_maintenance SET status = 'Sedang dikerjakan', tanggal_mulai = CURRENT_DATE, tanggal_selesai = NULL WHERE id_request_maintenance = %s",
-                                (data_pilih["id_request_maintenance"],)
-                            )
+                            run_execute("UPDATE riwayat_maintenance SET status = 'Sedang dikerjakan', tanggal_mulai = CURRENT_DATE, tanggal_selesai = NULL WHERE id_request_maintenance = %s", (data_pilih["id_request_maintenance"],))
                         else:
-                            run_execute(
-                                "INSERT INTO riwayat_maintenance (tanggal_mulai, status, id_request_maintenance) VALUES (CURRENT_DATE, 'Sedang dikerjakan', %s)",
-                                (data_pilih["id_request_maintenance"],)
-                            )
-                    else:  # Selesai
+                            run_execute("INSERT INTO riwayat_maintenance (tanggal_mulai, status, id_request_maintenance) VALUES (CURRENT_DATE, 'Sedang dikerjakan', %s)", (data_pilih["id_request_maintenance"],))
+                    else:
                         if existing:
-                            run_execute(
-                                "UPDATE riwayat_maintenance SET status = 'Selesai', tanggal_mulai = COALESCE(tanggal_mulai, CURRENT_DATE), tanggal_selesai = CURRENT_DATE WHERE id_request_maintenance = %s",
-                                (data_pilih["id_request_maintenance"],)
-                            )
+                            run_execute("UPDATE riwayat_maintenance SET status = 'Selesai', tanggal_mulai = COALESCE(tanggal_mulai, CURRENT_DATE), tanggal_selesai = CURRENT_DATE WHERE id_request_maintenance = %s", (data_pilih["id_request_maintenance"],))
                         else:
-                            run_execute(
-                                "INSERT INTO riwayat_maintenance (tanggal_mulai, tanggal_selesai, status, id_request_maintenance) VALUES (CURRENT_DATE, CURRENT_DATE, 'Selesai', %s)",
-                                (data_pilih["id_request_maintenance"],)
-                            )
-
+                            run_execute("INSERT INTO riwayat_maintenance (tanggal_mulai, tanggal_selesai, status, id_request_maintenance) VALUES (CURRENT_DATE, CURRENT_DATE, 'Selesai', %s)", (data_pilih["id_request_maintenance"],))
                     st.success(f"Status diubah menjadi '{status_baru}'.")
                     st.rerun()
                 except Exception as e:
@@ -611,11 +758,8 @@ else:
     st.markdown(f"### Selamat datang, **{pilihan}**!")
     st.divider()
 
-    tab_kamar, tab_sewa, tab_maint = st.tabs([
-        "Kamar Kosong", "Status Sewa", "Maintenance"
-    ])
+    tab_kamar, tab_sewa, tab_maint = st.tabs(["Kamar Kosong", "Status Sewa", "Maintenance"])
 
-    # ── Kamar Kosong ──────────────────────────────────────────────────────────
     with tab_kamar:
         st.subheader("Daftar Kamar Kosong")
         sql = """
@@ -640,7 +784,6 @@ else:
             df["Harga (Rp)"] = df["Harga (Rp)"].apply(lambda x: f"Rp {x:,}")
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-    # ── Status Sewa ───────────────────────────────────────────────────────────
     with tab_sewa:
         st.subheader("Sewa Aktif Saya")
         sql = """
@@ -664,8 +807,7 @@ else:
                 JOIN periode_pembayaran per ON pb.id_pembayaran = per.id_pembayaran
                 WHERE pb.id_sewa = s.id_sewa AND per.status = 'Berhasil'
             ) bayar ON TRUE
-            WHERE s.id_penyewa = %s
-              AND s.tanggal_akhir >= CURRENT_DATE
+            WHERE s.id_penyewa = %s AND s.tanggal_akhir >= CURRENT_DATE
             ORDER BY s.tanggal_mulai DESC
         """
         rows = run_query(sql, (id_penyewa,))
@@ -675,12 +817,9 @@ else:
             st.info("Tidak ada sewa aktif saat ini.")
         else:
             today = datetime.date.today()
-
-            # ── Kartu jatuh tempo per sewa ──────────────────────────────────
             for _, row in df_sewa.iterrows():
                 jatuh_tempo = row["jatuh_tempo"]
                 sisa_hari_bayar = (jatuh_tempo - today).days
-
                 cols = st.columns(4)
                 cols[0].metric("Kamar", f"{row['Kamar']} ({row['Kos']})")
                 cols[1].metric("Mulai Sewa", row["Mulai"].strftime("%d-%m-%Y"))
@@ -691,19 +830,11 @@ else:
                     cols[3].metric("Sisa Waktu Bayar", f"{sisa_hari_bayar} hari")
                 st.divider()
 
-            # Display table (hide internal columns)
             df_show = df_sewa.drop(columns=["id_sewa", "harga", "jumlah_bulan_bayar", "jatuh_tempo"])
             st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-            # ── Riwayat Pembayaran ────────────────────────────────────────────
             st.divider()
             st.subheader("Riwayat Pembayaran")
-            st.caption("Hanya pembayaran dari sewa Anda yang AKTIF saat ini.")
-            # PERBAIKAN: tambah filter `s.tanggal_akhir >= CURRENT_DATE`
-            # supaya nominal pembayaran yang tampil konsisten dengan
-            # 1 sewa yang sedang berjalan, bukan tercampur riwayat
-            # sewa lama (jika id_penyewa yang sama pernah sewa kamar
-            # berbeda sebelumnya).
             sql_bayar = """
                 SELECT k.nomor AS "Kamar",
                        pb.nominal AS "Nominal (Rp)",
@@ -714,8 +845,7 @@ else:
                 JOIN kamar k ON s.id_kamar = k.id_kamar
                 JOIN pembayaran pb ON s.id_sewa = pb.id_sewa
                 JOIN periode_pembayaran per ON pb.id_pembayaran = per.id_pembayaran
-                WHERE s.id_penyewa = %s
-                  AND s.tanggal_akhir >= CURRENT_DATE
+                WHERE s.id_penyewa = %s AND s.tanggal_akhir >= CURRENT_DATE
                 ORDER BY per.periode_bayar DESC
             """
             rows_bayar = run_query(sql_bayar, (id_penyewa,))
@@ -726,7 +856,6 @@ else:
                 df_bayar["Nominal (Rp)"] = df_bayar["Nominal (Rp)"].apply(lambda x: f"Rp {x:,}")
                 st.dataframe(df_bayar, use_container_width=True, hide_index=True)
 
-            # ── Form Pembayaran ───────────────────────────────────────────────
             st.divider()
             st.subheader("Bayar Sewa")
             with st.form("form_bayar", clear_on_submit=True):
@@ -736,41 +865,26 @@ else:
                 }
                 sewa_pilih = st.selectbox("Pilih sewa:", list(sewa_options.keys()))
                 sewa_data = sewa_options[sewa_pilih]
-
                 jumlah_bulan = st.selectbox("Jumlah bulan:", [1, 2, 3])
                 metode = st.selectbox("Metode pembayaran:", ["Transfer", "Tunai"])
-
                 nominal_per_bulan = int(sewa_data["harga"])
                 total_bayar = nominal_per_bulan * jumlah_bulan
                 st.info(f"Total: Rp {nominal_per_bulan:,} x {jumlah_bulan} bulan = **Rp {total_bayar:,}**")
-
                 submitted = st.form_submit_button("Bayar Sekarang")
                 if submitted:
                     try:
                         id_sewa = int(sewa_data["id_sewa"])
-                        # Insert pembayaran
-                        run_execute(
-                            "INSERT INTO pembayaran (nominal, metode_bayar, id_sewa) VALUES (%s, %s, %s)",
-                            (total_bayar, metode, id_sewa)
-                        )
-                        # Get new pembayaran id
+                        run_execute("INSERT INTO pembayaran (nominal, metode_bayar, id_sewa) VALUES (%s, %s, %s)", (total_bayar, metode, id_sewa))
                         new_pb = run_query("SELECT MAX(id_pembayaran) AS id FROM pembayaran")[0]["id"]
-
-                        # Insert periode untuk setiap bulan, mulai dari jatuh tempo berjalan
                         jatuh_tempo_awal = sewa_data["jatuh_tempo"]
                         for i in range(jumlah_bulan):
                             periode = (pd.Timestamp(jatuh_tempo_awal) + pd.DateOffset(months=i)).strftime("%Y-%m")
-                            run_execute(
-                                "INSERT INTO periode_pembayaran (periode_bayar, status, id_pembayaran) VALUES (%s, %s, %s)",
-                                (periode, "Berhasil", new_pb)
-                            )
-
+                            run_execute("INSERT INTO periode_pembayaran (periode_bayar, status, id_pembayaran) VALUES (%s, %s, %s)", (periode, "Berhasil", new_pb))
                         st.success(f"Pembayaran berhasil! {jumlah_bulan} bulan, total Rp {total_bayar:,}")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Gagal melakukan pembayaran: {e}")
 
-    # ── Maintenance ───────────────────────────────────────────────────────────
     with tab_maint:
         st.subheader("Request Maintenance Saya")
         sql = """
@@ -780,12 +894,10 @@ else:
                    COALESCE(TO_CHAR(rv.tanggal_selesai, 'DD-MM-YYYY'), '-') AS "Selesai"
             FROM request_maintenance rm
             LEFT JOIN riwayat_maintenance rv ON rm.id_request_maintenance = rv.id_request_maintenance
-            WHERE rm.id_penyewa = %s
-            ORDER BY rv.status NULLS FIRST
+            WHERE rm.id_penyewa = %s ORDER BY rv.status NULLS FIRST
         """
         rows = run_query(sql, (id_penyewa,))
         df = pd.DataFrame(rows)
-
         if df.empty:
             st.success("Tidak ada request maintenance.")
         else:
@@ -794,25 +906,18 @@ else:
         st.divider()
         st.subheader("Ajukan Maintenance Baru")
         with st.form("form_maintenance", clear_on_submit=True):
-            keluhan = st.text_area(
-                "Deskripsi keluhan:",
-                placeholder="Contoh: Lampu kamar mati, AC tidak dingin, keran bocor, dll."
-            )
+            keluhan = st.text_area("Deskripsi keluhan:", placeholder="Contoh: Lampu kamar mati, AC tidak dingin, keran bocor, dll.")
             submitted_maint = st.form_submit_button("Ajukan")
             if submitted_maint:
                 if keluhan.strip() == "":
                     st.warning("Deskripsi keluhan tidak boleh kosong.")
                 else:
                     try:
-                        run_execute(
-                            "INSERT INTO request_maintenance (deskripsi, id_penyewa) VALUES (%s, %s)",
-                            (keluhan.strip(), id_penyewa)
-                        )
+                        run_execute("INSERT INTO request_maintenance (deskripsi, id_penyewa) VALUES (%s, %s)", (keluhan.strip(), id_penyewa))
                         st.success("Request maintenance berhasil diajukan.")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Gagal mengajukan: {e}")
-
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
