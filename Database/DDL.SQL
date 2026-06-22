@@ -1,9 +1,3 @@
--- =====================================================================
--- 01. DDL — Data Definition Language
--- Proyek: Hidden Kost (Sistem Manajemen Kos)
--- Isi: ENUM types + CREATE TABLE + constraint + index dasar
--- Sumber asli: Database/DDL.SQL
--- =====================================================================
 
 -- ---------------------------------------------------------------------
 -- ENUM TYPES

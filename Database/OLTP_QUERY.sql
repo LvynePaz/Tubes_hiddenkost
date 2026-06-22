@@ -1,15 +1,3 @@
--- =====================================================================
--- 04. OLTP — Online Transaction Processing
--- Karakteristik query OLTP di proyek ini:
---   - Mengakses SATU/SEDIKIT baris spesifik via primary key / foreign key
---   - Dipakai real-time oleh user (penyewa/admin) saat memakai aplikasi
---   - Sering dipasangkan dengan INSERT/UPDATE (mengubah data, bukan
---     cuma membaca untuk laporan)
---   - Inilah tabel & kolom yang JADI ALASAN kita butuh index optimal
---     (lihat file 05) -- karena dipanggil BERULANG-ULANG, bukan sekali
---     untuk laporan bulanan
--- Sumber asli: Implementasi/halaman.py (Dashboard Penyewa, CRUD admin)
--- =====================================================================
 
 -- ---------------------------------------------------------------------
 -- OLTP-1: Lihat data kamar saat ini (tampilan tabel kamar admin)

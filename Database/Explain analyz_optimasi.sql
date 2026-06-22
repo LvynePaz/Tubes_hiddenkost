@@ -1,7 +1,3 @@
--- =====================================================================
--- 05. OPTIMAL INDEXING + EXPLAIN ANALYZE (Sebelum vs Sesudah)
--- Proyek: Hidden Kost
---
 -- CARA PAKAI FILE INI (jalankan berurutan dari atas ke bawah):
 --   STEP A -> jalankan blok "SEBELUM INDEX" dulu (drop index tambahan
 --             kalau sudah pernah dibuat, lalu EXPLAIN ANALYZE)
@@ -13,7 +9,7 @@
 
 
 -- =====================================================================
--- KENAPA INDEX INI DIPILIH? (analisis pola akses dari file 04_oltp)
+-- KENAPA INDEX INI DIPILIH? (analisis pola akses dari file OLTP
 -- =====================================================================
 -- Tabel "sewa" adalah tabel paling sering di-WHERE/JOIN:
 --   - WHERE id_penyewa = X            (OLTP-2: dashboard penyewa)

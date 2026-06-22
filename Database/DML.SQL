@@ -1,9 +1,3 @@
--- =====================================================================
--- 02. DML — Data Manipulation Language (Data Dummy / Seeding)
--- Proyek: Hidden Kost
--- Urutan WAJIB ikut urutan ini karena ada dependensi Foreign Key.
--- Sumber asli: Database/DML.SQL
--- =====================================================================
 
 -- 1) ROLES
 INSERT INTO roles (nama_role) VALUES

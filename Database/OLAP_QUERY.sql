@@ -1,13 +1,3 @@
--- =====================================================================
--- 03. OLAP — Online Analytical Processing
--- Karakteristik query OLAP di proyek ini:
---   - Membaca BANYAK baris sekaligus (bukan 1 baris spesifik)
---   - Selalu pakai agregasi: SUM / COUNT / GROUP BY
---   - Tujuannya REPORTING & DECISION MAKING (dashboard admin),
---     bukan transaksi operasional
---   - Tidak ada INSERT/UPDATE/DELETE di sini — read-only & analytical
--- Sumber asli: Implementasi/halaman.py (Tab Pendapatan & Tab Pembayaran)
--- =====================================================================
 
 -- ---------------------------------------------------------------------
 -- OLAP-1: Total pendapatan per properti kos
