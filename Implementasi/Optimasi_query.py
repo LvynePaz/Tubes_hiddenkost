@@ -247,29 +247,7 @@ def render():
             st.dataframe(df.style.applymap(warna, subset=["Algoritma"]),
                          use_container_width=True, hide_index=True)
 
-            # Bar chart waktu eksekusi
-            st.divider()
-            st.markdown("#### Waktu Eksekusi per Query")
-            chart_data = pd.DataFrame([
-                {"Query": h[0], "Waktu (ms)": h[2] if h[2] else 0}
-                for h in hasil
-            ])
-            st.bar_chart(chart_data.set_index("Query"))
 
-            # Detail
-            st.divider()
-            for label, algo, waktu, cost, plan in hasil:
-                t = f"{label} — {algo}"
-                if waktu: t += f" ({waktu:.3f} ms)"
-                with st.expander(t):
-                    if plan: st.code("\n".join(plan), language="sql")
-
-            st.divider()
-            st.markdown(
-                "**Index Scan** — filter FK, high selectivity (1-3 baris dari ribuan)  \n"
-                "**Bitmap Index Scan** — range query, banyak baris cocok  \n"
-                "**Seq Scan** — filter ENUM / tabel kecil, overhead index > manfaat"
-            )
 
     # ── TAB 3: INDEX AKTIF ──
     with tab3:

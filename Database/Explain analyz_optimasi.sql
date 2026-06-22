@@ -28,7 +28,7 @@ SELECT * FROM sewa WHERE tanggal_akhir >= CURRENT_DATE;
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT * FROM pembayaran WHERE id_sewa = 1;
 
--- KEMBALIKAN setting ke normal (WAJIB!)
+-- KEMBALIKAN setting ke index 
 SET enable_indexscan = on;
 SET enable_bitmapscan = on;
 SET enable_indexonlyscan = on;
