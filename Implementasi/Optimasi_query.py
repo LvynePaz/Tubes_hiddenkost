@@ -26,7 +26,7 @@ def _explain(sql, params=None, force_seq=False):
 
 def _algo(lines):
     txt = "\n".join(lines)
-    if "Index Only Scan" in txt: return "Index Only Scan"
+    if "Index Only Scan" in txt: return "Index Only Scan"   
     if "Bitmap Index Scan" in txt or "Bitmap Heap Scan" in txt: return "Bitmap Index Scan"
     if "Index Scan" in txt: return "Index Scan"
     if "Seq Scan" in txt: return "Seq Scan"
@@ -131,7 +131,7 @@ def render():
     # ── TAB 1: BENCHMARKING ──
     with tab1:
         st.subheader("Benchmarking — Sebelum vs Sesudah Index")
-        st.caption("Bandingkan performa query tanpa index (Seq Scan dipaksa) vs dengan index (planner bebas)")
+        st.caption("Bandingkan performa query tanpa index vs dengan index")
 
         pilihan = st.selectbox("Pilih Query:", [q[0] for q in QUERIES], key="bench_q")
         idx = [q[0] for q in QUERIES].index(pilihan)
@@ -147,7 +147,7 @@ def render():
             run_execute("ANALYZE pembayaran")
 
             # SEBELUM — paksa Seq Scan
-            st.markdown("#### Sebelum Index (Seq Scan dipaksa)")
+            st.markdown("#### Sebelum Index")
             plan_before = _explain(sql, p, force_seq=True)
             algo_b = _algo(plan_before)
             waktu_b = _waktu(plan_before)
@@ -168,7 +168,7 @@ def render():
             st.success(f"Index dibuat: {', '.join(n for n,_ in indexes)}")
 
             # SESUDAH — planner bebas
-            st.markdown("#### Sesudah Index (planner bebas)")
+            st.markdown("#### Sesudah Index")
             plan_after = _explain(sql, p, force_seq=False)
             algo_a = _algo(plan_after)
             waktu_a = _waktu(plan_after)
