@@ -30,8 +30,9 @@ with st.sidebar:
     badge = "role-pemilik" if role == "Pemilik" else "role-penyewa"
     st.markdown(f'<span class="role-badge {badge}">{role}</span>', unsafe_allow_html=True)
     st.divider()
-    halaman = st.radio("Halaman:", ["Dashboard", "Optimasi Query"],
-        index=0 if st.session_state.halaman == "Dashboard" else 1, key="halaman_radio")
+    daftar_halaman = ["Dashboard", "Optimasi Query",]
+    idx_hal = daftar_halaman.index(st.session_state.halaman) if st.session_state.halaman in daftar_halaman else 0
+    halaman = st.radio("Halaman:", daftar_halaman, index=idx_hal, key="halaman_radio")
     st.session_state.halaman = halaman
     st.divider()
     st.caption("KELOMPOK 2 @2026")

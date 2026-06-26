@@ -30,3 +30,10 @@ def run_explain(sql, params=None):
     with conn.cursor() as cur:
         cur.execute(f"EXPLAIN ANALYZE {sql}", params)
         return [r[0] for r in cur.fetchall()]
+
+def run_explain_buffers(sql, params=None):
+    """EXPLAIN (ANALYZE, BUFFERS) — lebih detail, ada info buffer hit/read."""
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(f"EXPLAIN (ANALYZE, BUFFERS) {sql}", params)
+        return [r[0] for r in cur.fetchall()]

@@ -113,5 +113,3 @@ CREATE TABLE IF NOT EXISTS riwayat_maintenance (
 
 CREATE INDEX index_nama_penyewa  ON profil_penyewa (nama_lengkap);
 CREATE INDEX index_nomor_kamar   ON kamar (nomor);
-CREATE INDEX index_status_penyewa ON profil_penyewa (status);
-CREATE INDEX index_status_kamar  ON kamar (status);
